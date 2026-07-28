@@ -57,3 +57,30 @@ Topic Generation
 To reduce the time required to create a YouTube Shorts video from hours to minutes through end-to-end automation.
 
 This project is intended for educational purposes, AI experimentation, and content creation workflow optimization.
+
+## Analytics optimizer
+
+The optimizer compares every upload on the same 24-hour, 72-hour and 7-day
+calendar windows. Strategy changes use the 7-day median only after at least
+five videos have reached 100 engaged views, preventing old uploads and single
+outliers from dominating future topics.
+
+Run the one-time OAuth flow whenever analytics scopes change:
+
+```bash
+python -m ai_shorts_factory auth
+```
+
+Credentials are saved locally to the ignored `token.json` file. Store its
+`refresh_token` securely as `YOUTUBE_REFRESH_TOKEN` without printing or
+committing it, then inspect measurement coverage and recommendations with:
+
+```bash
+python -m ai_shorts_factory optimize
+```
+
+Run the local test suite with:
+
+```bash
+python -m unittest discover -s tests -v
+```

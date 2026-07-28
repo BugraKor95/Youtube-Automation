@@ -37,18 +37,57 @@ def _to_float(v: Any) -> float | None:
 
 # Per-video metrics pulled from the Analytics API.
 _METRICS = (
-    "views,engagedViews,likes,comments,estimatedMinutesWatched,"
-    "averageViewDuration,averageViewPercentage,subscribersGained"
+    "views,engagedViews,likes,comments,shares,estimatedMinutesWatched,"
+    "averageViewDuration,averageViewPercentage,subscribersGained,subscribersLost"
 )
 _START_DATE = "2020-01-01"
 _CHUNK = 200  # video filter limit safety margin
 
 
-def fetch_video_analytics(video_ids: list[str]) -> dict[str, dict[str, Any]]:
+def _metrics_from_data(data: dict[str, Any]) -> dict[str, int | float]:
+    """Convert one Analytics API row into the optimizer's metric names."""
+    metrics: dict[str, int | float | None] = {
+        "views": _to_int(data.get("views")),
+        "engaged_views": _to_int(data.get("engagedViews")),
+        "likes": _to_int(data.get("likes")),
+        "comments": _to_int(data.get("comments")),
+        "shares": _to_int(data.get("shares")),
+        "watch_minutes": _to_float(data.get("estimatedMinutesWatched")),
+        "avg_view_duration": _to_float(data.get("averageViewDuration")),
+        "retention_pct": _to_float(data.get("averageViewPercentage")),
+        "subs_gained": _to_int(data.get("subscribersGained")),
+        "subs_lost": _to_int(data.get("subscribersLost")),
+    }
+    result = {k: v for k, v in metrics.items() if v is not None}
+
+    gained = result.get("subs_gained")
+    lost = result.get("subs_lost")
+    if gained is not None or lost is not None:
+        result["net_subscribers"] = int(gained or 0) - int(lost or 0)
+
+    views = result.get("views")
+    engaged = result.get("engaged_views")
+    if views and engaged is not None:
+        # Since March 2025, a Shorts view is a start/replay while engagedViews
+        # counts playbacks that continue past the initial seconds. This is an
+        # early-exit proxy, not Studio's "viewed vs. swiped away" metric.
+        engaged_rate = min(1.0, max(0.0, float(engaged) / float(views)))
+        result["early_exit_pct"] = round(100.0 * (1.0 - engaged_rate), 2)
+
+    return result
+
+
+def fetch_video_analytics(
+    video_ids: list[str],
+    *,
+    start_date: str | None = None,
+    end_date: str | None = None,
+) -> dict[str, dict[str, Any]]:
     """Return {video_id: metrics} from the YouTube Analytics API.
 
-    Metrics keys: views, likes, comments, watch_minutes, avg_view_duration,
-    retention_pct (averageViewPercentage), subs_gained.
+    ``start_date`` and ``end_date`` are inclusive ISO dates. Omitting them
+    returns lifetime-to-date statistics. Metrics include views, engaged views,
+    engagement actions, watch time, retention and subscriber movement.
     """
     if not video_ids:
         return {}
@@ -67,7 +106,8 @@ def fetch_video_analytics(video_ids: list[str]) -> dict[str, dict[str, Any]]:
         )
         return {}
 
-    end_date = dt.date.today().isoformat()
+    query_start = start_date or _START_DATE
+    query_end = end_date or dt.date.today().isoformat()
     results: dict[str, dict[str, Any]] = {}
     for i in range(0, len(video_ids), _CHUNK):
         chunk = video_ids[i : i + _CHUNK]
@@ -76,8 +116,8 @@ def fetch_video_analytics(video_ids: list[str]) -> dict[str, dict[str, Any]]:
                 analytics.reports()
                 .query(
                     ids="channel==MINE",
-                    startDate=_START_DATE,
-                    endDate=end_date,
+                    startDate=query_start,
+                    endDate=query_end,
                     metrics=_METRICS,
                     dimensions="video",
                     filters="video==" + ",".join(chunk),
@@ -94,26 +134,15 @@ def fetch_video_analytics(video_ids: list[str]) -> dict[str, dict[str, Any]]:
             vid = str(data.get("video", ""))
             if not vid:
                 continue
-            metrics = {
-                "views": _to_int(data.get("views")),
-                "engaged_views": _to_int(data.get("engagedViews")),
-                "likes": _to_int(data.get("likes")),
-                "comments": _to_int(data.get("comments")),
-                "watch_minutes": _to_float(data.get("estimatedMinutesWatched")),
-                "avg_view_duration": _to_float(data.get("averageViewDuration")),
-                "retention_pct": _to_float(data.get("averageViewPercentage")),
-                "subs_gained": _to_int(data.get("subscribersGained")),
-            }
             # Drop metrics the API has not processed yet (None/NaN) instead of
             # storing bogus zeros; the rest of the pipeline treats missing keys
             # gracefully.
-            results[vid] = {k: v for k, v in metrics.items() if v is not None}
-            views = results[vid].get("views")
-            engaged = results[vid].get("engaged_views")
-            if views and engaged is not None:
-                # % of impressions swiped away before the video counted as viewed.
-                results[vid]["swipe_away_pct"] = round(
-                    max(0.0, 100.0 * (1.0 - engaged / views)), 2
-                )
-    logger.info("Fetched Analytics metrics for %d/%d videos.", len(results), len(video_ids))
+            results[vid] = _metrics_from_data(data)
+    logger.info(
+        "Fetched Analytics metrics for %d/%d videos (%s to %s).",
+        len(results),
+        len(video_ids),
+        query_start,
+        query_end,
+    )
     return results
