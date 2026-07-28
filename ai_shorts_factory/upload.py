@@ -15,7 +15,8 @@ SCOPES = ["https://www.googleapis.com/auth/youtube.upload"]
 # Extra read-only scope for the YouTube Analytics API (retention, watch time,
 # subscribers gained). Re-run `ai-shorts-factory auth` once to grant it.
 ANALYTICS_SCOPE = "https://www.googleapis.com/auth/yt-analytics.readonly"
-ALL_SCOPES = [*SCOPES, ANALYTICS_SCOPE]
+YOUTUBE_READONLY_SCOPE = "https://www.googleapis.com/auth/youtube.readonly"
+ALL_SCOPES = [*SCOPES, ANALYTICS_SCOPE, YOUTUBE_READONLY_SCOPE]
 
 
 def _load_credentials(scopes: list[str] | None = None, force_consent: bool = False):

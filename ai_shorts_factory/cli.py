@@ -82,6 +82,7 @@ def _cmd_optimize(args: argparse.Namespace) -> int:
 
     optimizer.refresh_stats()
     sections = [
+        ("Measurement coverage", optimizer.performance_window_status()),
         ("Winning patterns (category performance)", optimizer.winning_patterns()),
         ("Top performing topics", optimizer.top_topics()),
         ("Top performing hooks", optimizer.top_hooks()),
@@ -102,11 +103,15 @@ def _cmd_optimize(args: argparse.Namespace) -> int:
         print("\nLong-form expansion candidates:")
         for c in candidates:
             print(
-                f"  {c['views']:>7} views  {c['topic']}  -> {c['recommended']}"
+                f"  {c['views']:>7} engaged views at {c['window']}  "
+                f"{c['topic']}  -> {c['recommended']}"
                 f"  (https://youtu.be/{c['video_id']})"
             )
     else:
-        print("\nNo long-form expansion candidates yet (needs 1000+ views).")
+        print(
+            "\nNo long-form expansion candidates yet "
+            "(needs 1000+ engaged views in a 7-day window)."
+        )
     return 0
 
 
@@ -123,18 +128,17 @@ def _cmd_should_publish(args: argparse.Namespace) -> int:
 
 
 def _cmd_auth(args: argparse.Namespace) -> int:
-    """Run the one-time OAuth flow and print the refresh token for CI.
+    """Run the one-time OAuth flow and save credentials locally.
 
-    Requests upload + Analytics scopes and forces a fresh consent so the new
-    refresh token also unlocks retention/watch-time/subscriber metrics.
+    Requests upload + YouTube read-only + Analytics scopes and forces fresh
+    consent so the token unlocks retention/watch-time/subscriber metrics.
     """
     from .upload import ALL_SCOPES, _load_credentials
 
     creds = _load_credentials(ALL_SCOPES, force_consent=True)
-    print("\nAuthorisation successful. Token saved.")
-    if creds.refresh_token:
-        print("\nStore this as the YOUTUBE_REFRESH_TOKEN secret for CI:\n")
-        print(creds.refresh_token)
+    print("\nAuthorisation successful. Credentials saved to token.json.")
+    if not creds.refresh_token:
+        print("Warning: Google did not return a refresh token.")
     return 0
 
 
@@ -169,7 +173,7 @@ def main(argv: list[str] | None = None) -> int:
     p_up.add_argument("folder", help="path to an output/<timestamp> folder")
     p_up.set_defaults(func=_cmd_upload)
 
-    p_auth = sub.add_parser("auth", help="run YouTube OAuth and print refresh token")
+    p_auth = sub.add_parser("auth", help="run YouTube OAuth and save credentials")
     p_auth.set_defaults(func=_cmd_auth)
 
     p_opt = sub.add_parser(
